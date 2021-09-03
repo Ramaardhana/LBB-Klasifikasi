@@ -1,0 +1,231 @@
+---
+title: "LBB_Classification1"
+author: "Rama"
+date: "9/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(caret)
+library(car)
+library(class)
+library(dplyr)
+library(gtools)
+library(performance)
+```
+
+
+```{r}
+wholesale<-read.csv("data_input/wholesale.csv")
+head(wholesale)
+```
+```{r}
+summary(wholesale)
+```
+```{r}
+wholesale <- wholesale %>% mutate(Channel=as.factor(Channel),
+                                  Region=as.factor(Region))
+
+colSums(is.na(wholesale))
+```
+```{r}
+wholesale %>% filter(Channel==1)
+```
+
+```{r}
+boxplot(wholesale$Fresh)
+boxplot(wholesale$Milk)
+boxplot(wholesale$Grocery)
+boxplot(wholesale$Frozen)
+boxplot(wholesale$Detergents_Paper)
+boxplot(wholesale$Delicassen)
+```
+dari tampilan boxplot didapati bahwa tiap prediktor memiliki nilai outlier.
+```{r}
+RNGkind(sample.kind = "Rounding")
+#Membuat data train & test
+set.seed(100)
+
+index <- sample(x = nrow(wholesale), size = nrow(wholesale)*0.8) 
+
+
+wholesale.train <- wholesale[index,]
+wholesale.test <- wholesale[-index,]
+```
+
+```{r}
+prop.table(table(wholesale.train$Channel))
+prop.table(table(wholesale.test$Channel))
+```
+```{r}
+ws_no<-glm(Channel~1,data = wholesale.train, family = "binomial")
+ws_all<-glm(Channel~.,data = wholesale.train, family = "binomial")
+```
+
+```{r}
+ws_back <-step(object = ws_all, direction = "backward", trace = F)
+
+ws_fwd <-step(object = ws_no,
+     scope = list(lower = ws_no,
+                  upper = ws_all),
+     direction = "forward", 
+     trace = F)
+
+ws_2w<-step(object = ws_no,
+     scope = list(lower = ws_no,
+                  upper = ws_all), 
+     direction = "both",
+     trace = F)
+```
+
+```{r}
+compare_performance(ws_all,ws_back, ws_fwd, ws_2w)
+```
+Didapati model yang terbaik adalah model ws_back/ws_fwd/ws_2w dengan nilai AIC yang paling rendah.
+```{r}
+summary(ws_back)
+```
+```{r}
+cek_bw<-predict(ws_back, wholesale.test, type = "response")
+summary(cek_bw)
+```
+
+```{r}
+wholesale.test$pred.Channel<-cek_bw
+wholesale.test
+```
+```{r}
+wholesale.test$pred.label<-ifelse(test =wholesale.test$pred.Channel>0.5, 2, 1)
+confusionMatrix(data=as.factor(wholesale.test$pred.label),
+                reference = wholesale.test$Channel)
+
+```
+Menggunakan model logistic regression didapati hasil akurai yg baik pada data tes. Coba dibuat model lain sebagai pembanding.
+
+#KNN
+```{r}
+#Predictor
+wholesale.train_x<-wholesale.train %>% select(-c(Region,Channel))
+wholesale.test_x<-wholesale.test %>% select(-c(Region,Channel, pred.Channel, pred.label))
+ 
+# 
+
+# # target
+wholesale.train_y <- wholesale.train[,"Channel"]
+# 
+wholesale.test_y <- wholesale.test[,"Channel"]
+```
+
+```{r}
+wholesale.train_Z <- scale(wholesale.train_x)
+
+
+wholesale.test_z <- scale(wholesale.test_x, 
+                          center = attr(wholesale.train_Z, "scaled:center"), 
+                          scale = attr(wholesale.train_Z, "scaled:scale"))
+```
+
+```{r}
+#Max K
+sqrt(nrow(wholesale.train_x))
+```
+```{r}
+ws_pred_knn <- knn(train = wholesale.train_Z, 
+                 test = wholesale.test_z, 
+                 cl = wholesale.train_y,
+                 k = 9)
+```
+
+
+```{r}
+confusionMatrix(data= ws_pred_knn, 
+                reference = wholesale.test_y)
+```
+Nilai akurasi dari analisa KNN sama saja dengan model regresi logistik, namun berbeda pada nilai Sensitivity dan Specificity.
+
+
+#naive Bayes
+```{r}
+library(inspectdf)
+library(e1071)
+```
+```{r}
+ws_naive <-naiveBayes(Channel~., data=wholesale.train)
+ws_naive$tables
+```
+```{r}
+confusionMatrix(data= predict(ws_naive, wholesale.train), 
+                reference = wholesale.train$Channel)
+```
+
+```{r}
+confusionMatrix(data= predict(ws_naive, wholesale.test), 
+                reference = wholesale.test$Channel)
+```
+Akurasi dari naive bayes sedikit lebih kecil dari model yang lainnya.
+
+
+
+```{r}
+#model decision tree
+library(partykit)
+library(ROCR)
+```
+
+
+```{r}
+ws_d3<-ctree(Channel~., data = wholesale.train)
+plot(ws_d3, type = "simple") 
+```
+```{r}
+confusionMatrix(data= predict(ws_d3, wholesale.train), 
+                reference = wholesale.train$Channel)
+```
+
+```{r}
+confusionMatrix(data= predict(ws_d3, wholesale.test), 
+                reference = wholesale.test$Channel)
+
+```
+```{r}
+#set.seed(100)
+
+#ctrl <- trainControl(method = "repeatedcv",
+#                      number = 8, # k-fold
+#                      repeats = 3) # repetisi
+ 
+#ws_rf <- train(Channel ~ .,
+#               data = wholesale.train,
+#               method = "rf", # random forest
+#               trControl = ctrl)
+# 
+#saveRDS(ws_rf, "ws_rf.RDS") # simpan model
+```
+
+```{r}
+ws_rf<-readRDS("ws_rf.RDS")
+```
+
+```{r}
+confusionMatrix(data= predict(ws_rf, wholesale.train), 
+                reference = wholesale.train$Channel)
+```
+
+
+```{r}
+confusionMatrix(data= predict(ws_rf, wholesale.test), 
+                reference = wholesale.test$Channel)
+```
+Kesimpulan:
+Karena tidak ada target khusus dalam menentukan level kelas pada kolom "Channel", maka metric yang diperhatikan adalah nilai akurasi.
+Dari keseluruhan analisis model yang dilakukan, model terbaik dalam menentukan akurasi data "channel" adalah model Random Forest.
